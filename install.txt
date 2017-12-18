@@ -1,0 +1,63 @@
+sudo sh -c "echo deb https://apt.dockerproject.org/repo ubuntu-trusty main > /etc/apt/sources.list.d/docker.list"
+
+sudo sh -c "echo deb https://apt.dockerproject.org/repo \
+ubuntu-xenial main > /etc/apt/sources.list.d/docker.list"
+
+sudo apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys 58118E89F3A912897C070ADBF76221572C52609D
+
+sudo apt-get update
+
+docker --version
+Docker version 17.05.0-ce, build 89658be
+
+=======================================
+cài đặt dùng automation script:
+
+For the curl command:
+$ sudo curl -sSL https://get.docker.io/ | sh
+
+For the wget command:
+$ sudo wget -qO- https://get.docker.io/ | sh
+
+========================================
+Xem các thông tin cấu hình
+
+sudo docker version
+sudo docker info
+
+5, Client-server communication
+
+trên linux thì docker được lập trình để care server-client comunication dùng unix socket (/var/run/docker.sock)
+
+Nó cũng đăng ký 1 cổng là 2375, mặc định cổng này ko được mở
+
+6, Download docker image từ Docker Registry 
+
+Docker registry là 1 application reposity mà hosts đa dạng applications, từ basic linux tới advance applications
+
+docker pull subcommand được dùng để download images
+
+  sudo docker pull hello-world
+
+Sau khi image được download có thể kiểm tra lại bằng lệnh:
+  
+  sudo docker images
+
+7, Running the first Docker container
+
+  sudo docker run hello-world
+
+  command này đã tạo 1 container từ hello-world image 
+
+  container cho phép gói 1 application với tất cả các dependencies và ship nó tới bất kỳ đâu chạy nó
+  smooth trong development, test, production env.
+  docker cung cấp các cách để chạy các container tư động và fashion 
+  containers là các sandboxes tiêu biểu, phân tách các quá trình với nhau. Docker là 1 nice job cho việc
+nâng cao mô hình đóng gói, cho các mục đích làm nhẹ việc đóng gói, dễ dàng shipping, deployment nhanh, delivery nhanh
+
+8, Các command để kiểm tra status của docker
+
+  sudo service docker status
+  sudo service docker restart
+
+  journalctl -u docker

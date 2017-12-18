@@ -1,0 +1,249 @@
+1, Docker registry
+- Để push docker image lên Docker Registry
+    docker push
+- Để kéo docker image từ Docker Registry dùng
+    docker pull
+
+2, Làm việc với Docker images
+
+- pull image
+
+  sudo docker pull busybox
+  
+mặc định docker luôn pull image version là latest . 
+
+  sudo docker pull busybox:1.24
+
+docker pull cũng có option -a để download tất cả version của images
+
+- Liệt kê các images đang có trong local docker host
+  sudo docker images
+
+3, Docker Hub
+
+index.docker.io  (Đây là nơi lưu trữ các images được cộng đồng public được gọi là Docker Hub)
+
+docker pull sẽ tìm kiếm các image trong location này 
+
+- download third party image:
+
+  sudo docker pull thedockerbook/helloworld
+
+- Dể download images từ một third party hoặc local reposity phải thủ công xac định path nơi image nên được pull
+  
+  sudo docker pull registry.example.com/myapp
+
+4, Searching Docker images
+
+Đến nay, hàng ngìn docker images (Dockerized app) available cho users, chúng có thể download
+để xây dựng block cho application xác định
+
+Có thể search các images trong Docker Hub Registry dùng docker search
+
+  sudo docker search mysql 
+
+Để hạn chế số lượng kết quả:
+
+  sudo docker search mysql | head -10
+
+5,  Working with an interactive container
+
+  docker run
+
+command có 2 option là -t và -i để làm docker interactive. -i là key driver nó làm container interactive bằng
+việc tóm lấy standard input (STDIN) của container. -t flag cho phép pseudo -TTY sau đó assign nó tới container
+
+  sudo docker run -i -t ubuntu:16.04 /bin/bash
+
+Nó sẽ báo là ubuntu image chưa được download sau đó nó sẽ tự động download ubuntu image
+
+Khi download hoàn thành container sẽ được lauched với ubuntu:16.04 image. Nó cũng lauched 1 Bash shell.
+
+Trong docker hostname của container chính là ID của nó
+
+- Có thể thoát promp của container đang chạy bằng Ctrl + P rồi Ctrl + Q để cho container chạy ngầm 
+- Dùng command sau để liệt kê các container đang chạy ngầm:
+
+  sudo docker ps
+
+- để access lại container dùng command:
+
+  sudo docker attach vigilant_ardinghelli
+
+vigilant_ardinghelli: là tên container 
+
+Tương tác với container dùng 1 số commands
+
+pwd, ls, cd usr, ls , exit
+
+- exit sẽ stop container
+
+6, Theo dõi các thay đổi bên trong containers
+
+- Lauche container trong chế độ interactive
+
+  sudo docker run -i -t ubuntu:16.04 /bin/bash
+
+  cd /home
+  ls -l
+  touch {abc, cde, fgh}
+  ls -l
+
+  ctrl D
+
+  sudo docker diff b25f1e36d4d5
+
+  b25f1e36d4d5 là id của container
+
+output: 
+C /home
+A /home/abc
+A /home/cde
+A /home/fgh
+
+C là change, A là add, D là delete
+
+7, Controlling Docker containers
+
+The Docker Engine enables you to start , stop , and restart a container with a set of
+docker subcommands
+
+- docker stop subcommand,
+  
+  sudo docker run -i -t ubuntu:16.04 /bin/bash
+
+  Mở một terminal mới để stop container này
+
+  sudo docker stop ded28675279c
+  ded28675279c: là id của container
+  sudo docker ps (nothing is return)
+
+  Bên terminal mà đã run contain nữa đồng thời cũng tự động exit
+
+  sudo docker ps -a 
+
+  sẽ liệt kê tất cả container  trong docker host bất kể status của nó là gì
+
+- docker start
+
+Start 1 hoặc nhiều container đã stop
+
+  sudo docker start ded28675279c
+
+mặc định câu lệnh này không attach tới container để command này attach container sau khi start thêm option -a
+  
+  sudo docker start -a ded28675279c
+
+  hoặc dùng 
+
+  sudo docker attach ded28675279c
+
+- docker restart
+
+  combine 2 command là stop và start
+
+- docker pause 
+
+cơ bản nó sẽ freeze sự thực thi của các tiên trình bên trong container 
+
+- docker unpause 
+
+sẽ unfreeze sự thực thi của các process trong container, resume sự thực thi tại thời điểm nó bị frozen
+
+ví dụ miinh họa
++ terminal 1: Cứ 5s thì in ra time 1 lần
+
+sudo docker run -i -t ubuntu:16.04 /bin/bash
+
+while true; do date; sleep 5; done
+
++ terminal 2: pause container 
+
+sudo docker pause 316fba7bb3bf
+
+terminl 1 sẽ ngừng in ra time
+
+sudo docker unpause 316fba7bb3bf
+
+terminal 1 sẽ tiếp tục in ra time
+
+8,  Housekeeping containers
+
+Khi một container bị stop ta vẫn có thể hoàn thành các operations trên nó, như commit 1 image từ
+1 container và restart nó. Tuy nhiên các stop container sẽ chiếm bộ nhớ
+- để xóa container khi nó bị stop. dùng lệnh run với --rm option
+
+sudo docker -i -t --rm ubuntu:16.04 /bin/bash
+
+- Hoặc dùng docker rm để xóa 1 container
+
+sudo docker ps -a
+
+sudo docker rm 316fba7bb3bf
+
+- Để xóa toàn bộ các container không running dùng 
+
+  sudo docker rm $(sudo docker ps -aq)
+
+$(sudo docker ps -aq) lấy toàn bộ id của các container
+
+- Có thể dùng -f option cho docker rm để xóa 1 container đang chạy
+
+  sudo docker rm -f $(sudo docker ps -aq)
+
+- Để lọc ra và chỉ xóa các container đã stop dùng
+
+  sudo docker rm $(sudo docker ps -aq -f state=exited)
+
+  hoặc
+
+  sudo docker container prune
+
+
+9,  Building images from containers
+
+Trước đó chúng ta đã tạo các container từ các base images chuẩn như busybox, ubuntu
+trong phần này chúng ta sẽ them nhiều software tới base image trên 1 running container sau đó convert
+container đó thành 1 image để dùng trong tương lai
+
+sudo docker run -i -t ubuntu:16.04 /bin/bash
+
+which wget
+
+apt-get update
+apt-get install -y wget
+
+which wget
+
+terminal khac:  sudo docker diff 7c252ed35898
+
+- Dùng docker commit để tạo image từ 1 container cả khi container đang chạy hoặc stop, tốt nhất là
+stop trước khi commit, nếu container đang running thì nó sẽ bị pause đến tận khi commit hoàn thành
+
+  sudo docker commit 7c252ed35898 learningdocker/ubuntu_wget
+
+  sudo docker images   (để kiểm tra xem image mới đã được tạo chưa)
+
+  Thực tế thì sẽ dùng Dockerfile method để tạo image chứ ko dùng cách này
+
+10, Launching a container as a daemon  (Launch container trong chế độ deattched)
+
+- Dùng -d cho docker run
+
+sudo docker run -d ubuntu:16.04 /bin/bash -c "while true; do date; sleep 5; done"
+
+- docker logs được dùng để xem output của daemon container:
+
+  sudo docker logs 0137d98ee363b44f22a48246ac5d460c65b67e4d7955aab6cbb0379ac421269b
+
+0137d98ee363b44f22a48246ac5d460c65b67e4d7955aab6cbb0379ac421269b là mã sinh ra từ lệnh docker run -d
+
+
+
+
+
+
+
+
+
+ 
