@@ -1,0 +1,141 @@
+1, Hiểu về docker hub
+ là 1 nơi để lưu giữ các docker images, có các tính năng như reposity, authen, auto image build, tích hợp với github
+bitbucket quản lý nhóm và tổ chức.
+
+Docker Registry component của Docker  Hub quản lý reposity cho docker images.
+Cũng có thể bảo vệ reposity dùng Docker Securing Scaning 
+
+2, Đăng ký tài khoản 
+
+https://hub.docker.com/
+
+docker hub id: tranhuyhoang
+email: hoangth92.nd@gmail.com
+pass: Hoang123456
+
+3, access to docker hub dùng ubuntu terminal:
+
+sudo docker login
+
+Username: tranhuyhoang
+Password: 
+Login Succeeded
+
+
+4, push images to Docker hub
+
+1. Create a Docker image on the local machine by doing one of the following:
+Using the docker commit subcommand
+Using the docker commit subcommand with Dockerfile
+
+2. Pushing this created image to Docker Hub
+3. Deleting the image from Docker Hub
+
+Chúng ta sẽ dùng ubuntu base image, run container, thêm folder, new file và sau đó tạo new image. 
+
+$ sudo docker run -i --name="containerforhub" -t ubuntu /bin/bash
+
+root@e25c7c33b6a1:/# mkdir mynewdir
+root@e25c7c33b6a1:/# cd mynewdir
+root@e25c7c33b6a1:/mynewdir# echo 'this is my new container to make image an then push to hub' > mynewfile
+root@e25c7c33b6a1:/mynewdir# 
+root@e25c7c33b6a1:/mynewdir# 
+root@e25c7c33b6a1:/mynewdir# ls
+mynewfile
+root@e25c7c33b6a1:/mynewdir# cat mynewfile
+
+*** Dùng 'sudo docker commit' để tạo image
+chú ý rằng commit sẽ được thực thi trên host machine nơi container đang chạy, ko phải là bên trong container
+
+
+sudo docker commit -m="NewImage for second edition" containerforhub tranhuyhoang/imageforhub2
+
+sudo docker login
+
+sudo docker push tranhuyhoang/imageforhub2
+
+
+5, Test image từ repo
+
+Xóa image từ local sau đó pull về từ repo
+
+
+- Stop container và xóa nó
+
+sudo docker stop containerforhub
+sudo docker rm containerforhub
+
+- Xóa image
+
+sudo docker rmi tranhuyhoang/imageforhub2
+
+- Pull image từ Docker Hub
+
+sudo docker run -i --name="newcontainerforhub" -t tranhuyhoang/imageforhub2 /bin/bash
+
+6, Tạo lại image dùng Dockerfile
+
+
+################################################
+# Dockerfile to build a new image
+################################################
+# Base image is ubuntu
+FROM ubuntu:16.04
+# Author: tranhuyhoang
+MAINTAINER tranhuyhoang <hoangth92.nd@gmail.com>
+# create 'mynewdir' and 'mynewfile'
+RUN mkdir mynewdir
+RUN touch /mynewdir/mynewfile
+RUN echo 'this is my new container to make image and then push to hub' > /mynewdir/mynewfile
+
+
+
+$ sudo docker build -t="tranhuyhoang/dockerfileimageforhub1" .
+
+$ sudo docker run -i --name="dockerfilecontainerforhub" -t runtranhuyhoang/dockerfileimageforhub1 /bin/bash
+
+sudo docker login
+
+sudo docker push tranhuyhoang/dockerfileimageforhub1
+
+
+
+7, Automating build process cho images
+
+Chúng ta đã học cách build images từ container, Dockerfile và push các images đó tới docker hub . Docker Hub cũng có khả 
+năng auto build image từ Dockerfile và giữ nó trong repo của Github hoặc bitbucket. Automated build được hỗ trợ trên cả
+private và public Github. Docker hub registry keep tất cả auto build images. Docker hub registry là open source và có
+thể access từ https://github.com/docker/docker-registry
+
+- Các bước để implement auto build process:
+1, Connect docker Hub tới Github account
+
+đăng nhập docker hub
+vào mục setting
+click vào linked account & services
+click vào link github
+cho phép docker access to github
+
+
+2, login docker hub, click on 'Create' và sau đó navigate tới 'Create Automated Build' 
+
+click vào Create Auto-build Github
+
+chọn project muốn thêm vào auto-build
+
+3, Thêm Dockerfile tới project commit rồi push lên github
+docker hub sẽ tự đông trigger event để auto-build Dockerfile thành image rồi lưu lại docker hub
+
+4, Để pull docker image về máy local:
+
+sudo docker pull tranhuyhoang/docker_demo
+
+sudo docker run -i --name='docker_auto_build' -t tranhuyhoang/docker_demo
+
+8, private docker repo trên docker hub
+
+public repo là free, còn private là mất phí 
+private có 3 loại phụ thuộc vào size: micro, small, medium, large
+
+
+

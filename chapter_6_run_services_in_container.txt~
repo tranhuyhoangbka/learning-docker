@@ -1,0 +1,353 @@
+1, Trong chương này, ta sẽ học về cách tạo 1 webserver chạy trong 1 container và cho phép outsiders connect tới thông qua internet 
+
+Container networking
+Container as a Service (CaaS) – building, running, exposing, and connecting to
+container services
+Publishing and retrieving containers' port
+Binding a container to a specific IP address
+Autogenerating the Docker host port
+Port binding using the EXPOSE and -P options
+
+2, tổng quan về container networking
+Networking là thành phần hạ tầng thiết yếu của enterprise và cloud IT. 
+
+1 docker host có thể chứa nhiều docker containers và networking trở thành 1 thành phần thiết yếu để ghép các container lại với nhau. 
+Các containers cũng cân tương tác, cộng tác với local cũng như remote để tạo ra các distributed applications. 
+
+Mặc định thì trong quá trình install, docker engine tạo 3 network 
+
+  sudo docker network ls
+
+0783e7e9e621        bridge              bridge              local
+c42244481e41        host                host                local
+0e9a33e9db8d        none                null                local
+
+bridge , host , and none ( null ) networks
+
+Khi Docker tạo 1 container, nó tạo 1 network stack cho container và attach mặc định bridge network. Tuy nhiên, có thể
+attach tới host hoặc none, hoặc user-defined network dùng '--net' option của 'docker run'
+
+Nếu chọn host network , contaiiner được attached tới host network stack và shares host's IP address và ports. none network mode tạo 1 network stack với chỉ Loopback (lo) interface. Khi đó container ko thể kết nối với container khác hoặc external
+world 
+
+sudo docker run --rm --net=none busybox ip addr
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue 
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+
+
+bridge network là network interface mặc định mà docker engine assign tới container nếu network ko được config dung
+--net option của 'docker run' 
+
+  sudo docker network inspect bridge
+
+
+[
+    {
+        "Name": "bridge",        
+        "IPAM": {            
+            "Config": [
+                {
+                    "Subnet": "172.17.0.0/16",
+                    "Gateway": "172.17.0.1"
+                }
+            ]
+        },
+        "Internal": false,
+        "Options": {            "
+            "com.docker.network.bridge.name": "docker0"
+        }       
+    }
+]
+
+- docker0: Docker tạo 1 Ethernet bridge interface tron Linux kernel với tên là docker0 trên Docker host. Interface này được dùng như 1 bridge để pass các ethernet frames giữa các containers và giữa các container với external network
+
+- Subnet: Docker chọn 1 private IP subnet từ dải 172.17.0.0 tới 172.17.255.255 và keep nó phục sự cho container. 
+- Gateway: docker0 interface là gateway cho bridge network và docker, từ IP subnet range selected trước đó, gán 1 IP address tới docker0. ở đay 172.17.0.1 được gán cho gateway
+
+Có thể check gateway address dùng 
+
+  $ ip addr show docker0
+
+  out put:  inet 172.17.0.1/16 scope global docker0
+
+3, bridge mode
+
+docker engine tạo 1 network stack với 1 loopback (lo) interface và 1 Ethernet (eth0) interface trong suốt quá trình lauche
+container. 
+
+
+ sudo docker run -it busybox ip addr
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue 
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+32: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue 
+    link/ether 02:42:ac:11:00:03 brd ff:ff:ff:ff:ff:ff
+    inet 172.17.0.3/16 scope global eth0
+       valid_lft forever preferred_lft forever
+
+ ip addr show rangwf docker engine ddax taoj 1 network stack cho container voiws 2 network interfaces:
+
+- first: lo (Loopback) inteface, thứ docker engine gán 127.0.0.1 Loopback address. Loopback interface được dùng cho local
+communication bên trong container
+
+- second: eth0 (Ethernet) interface, thứ docker engine gán 172.17.0.3 . Address này cũng cùng dải với docker0 Ethernet bridge interface. Bên cạnh đó, address được gán cho eth0 được dùng cho intra-container communication và host to container
+
+4, 
+
+chạy và lấy id của container:
+
+sudo docker run -itd ubuntu:16.04
+
+inspect docker
+
+
+"Networks": {
+                "bridge": {
+                    "IPAMConfig": null,
+                    "Links": null,
+                    "Aliases": null,
+                    "NetworkID": "0783e7e9e6213ccf79d7fa236568f6548e50f52ad4f4726fcbe147f7436b3b15",
+                    "EndpointID": "d94da532465cb2e1486c5e281c1f7c2a6d32c5ea6a5bce7fbecd555b0cfd4545",
+                    "Gateway": "172.17.0.1",
+                    "IPAddress": "172.17.0.3",
+                    "IPPrefixLen": 16,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "MacAddress": "02:42:ac:11:00:03"
+                }
+            }
+
+- Gateway: đây là gateway addrss của container nó là address của bridge interface
+
+- IPAddress: là IP address được assign cho container
+- IPPrefixLen là ip prefix length 
+
+5, coi container như 1 service 
+
+trong phần này ta sẽ tạo 1 image với HTTP service, lauche Http service bên trong container, sau đó minh họa connection tới http service đang chạy bên trong container 
+
+5.1. Xây dụng 1 http service image
+
+install apache2 trên top của ubuntu 16.04 base image, cấu hình apache http server để chạy như 1 executable, dùng ENTRYPOINT instruction
+
+#########################################
+# Dockerfile to build an apache2 image
+#########################################
+# Base image is Ubuntu
+FROM ubuntu:16.04
+# Author tranhuyhoang
+MAINTAINER tranhuyhoang <hoangth92.nd@gmail.com>
+# Install apache2 package
+RUN apt-get update && apt-get install -y apache2 && apt-get clean
+# Set the log directory PATH
+ENV APACHE_LOG_DIR /var/log/apache2
+# Launch apache2 server in the foreground
+ENTRYPOINT ["/usr/sbin/apache2ctl", "-D", "FOREGROUND"]
+
+service được lauch trong foreground chưa ko phải là background bởi vì các images được tạo ra cho 1 mục đích duy nhất
+
+$ sudo docker build -t apache2 .
+$ sudo docker images
+
+5.2 Running HTTP server image như service với apache2
+
+Chúng ta sẽ lauch container từ Apache HTTP service image trong detached mode (unix daemon process (in background))
+
+  sudo docker run -d apache2
+
+  sudo docker logs fff6eb6d1e2ad06c1bbb6b7e25a6f96e358d2383f2259a6d6a
+
+Một warning message xuất hiện và ta thấy 172.17.0.2 là ip của container này 
+
+
+5.3 Connecting tới HTTP service
+- Get container IP address dùng contaiiner ID:
+
+$ sudo docker inspect --format='{{.NetworkSettings.IPAddress}}' fff6eb6d1e2ad06c1bbb6b7e25a6f96e358d2383f2259a6d6a
+=> 172.17.0.2
+
+5.4. Tạo một web request tới IP này 
+
+wget -qO - 172.17.0.2
+
+như vậy chúng ta có first service running trong 1 container, và ta có khả năng reach tới service từ Docker host
+service được đưa ra bởi 1 container là có khả năng accessible bởi các container khác trong cùng docker host. 
+Ta có thể thử bằng cách lauche 1 new ubuntu container trong interactive mode , install wget package dùng apt-get và run
+
+wget -qO - 172.17.0.2
+kết quả là như cũ
+
+6, Exposing container services 
+
+container có khả năng install wget package bằng việc connect tới APT repo qua internet. Tuy nhiên, mặc định thì outside world ko thể access service của container.
+
+Docker hoàn thành sự riêng rẽ network cho các containers bằng việc gán các IP address:
+
+  + Gán 1 private IP address tới container, nó ko có khả năng reachable từ external network
+  + Gán 1 IP address tới container outside host's IP network
+
+7, Publishing a container's port – the -p option
+
+Docker cho phép bạn publish a service bên trong container bằng việc binding port của container đó tới host interface. 
+-p option của 'docker run' cho phép bind container port tới 1 user xác định hoặc tự động sinh port của docker host.
+Như vậy, bất kỳ kết nối đi tới IP addres và port của docker host sẽ được forwarded tới port của container. 
+
+<hostPort>:<containerPort>
+<containerPort>
+<ip>:<hostPort>:<containerPort>
+<ip>::<containerPort>
+
+IP là IP address của docker host, <hostPort> là docker host port number, <containerPort> là port của container. 
+Trong phần này chúng ta sẽ dùng dạng
+
+-p <hostPort>:<containerPort> format 
+
+Cổng 80 là published port của HTTP service và mặc định apache http server cũng available trên cổng 80. Chúng ta sẽ bind cổng 80 của container tới cổng 80 của Docker host
+
+***
+trước tiển chúng ta cần stop apache trong docker host trước 
+
+sudo /etc/init.d/apache2 stop
+
+sau đó run docker image 
+
+$ sudo docker run -d -p 80:80 apache2
+
+và access http://localhost từ trình duyệt kết quả có là trang apache mặc định 
+Như vậy chúng ta đã access service của container từ bên ngoài 
+
+
+
+8, NAT cho containers
+
+sudo iptables -t nat -L -n
+
+Chain DOCKER (2 references)
+target prot opt source  destination
+
+DNAT tcp -- 0.0.0.0/0  0.0.0.0/0  tcp dpt:80
+to:172.17.0.14:80
+
+tcp nghĩa là DNAT rule chỉ apply TCP transport protocal
+0.0.0.0/0 address đầu tiên là meta IP address của source address, chỉ dẫn rằng connection có thể xuất phát trừ bất kỳ IP address nào
+
+0.0.0.0/0 address thứ 2 là IP address của destination address trên Docker host. address này chỉ dẫn rằng connection có thể được tạo tới bất kỳ IP address valid nào trên docker hosst
+
+tcp dpt:80 to:172.17.0.2:80 là sự chỉ dẫn được dùng để forward bất kỳ TCP activity nào trên cổng 80 của docker host tới 172.17.0.2 IP address của container và cổng 80
+
+Do đó TCP packet mà docker host nhận trên cổng 80 sẽ được forward tới cổng 80 của container
+
+
+9, Retrieving the container port
+
+** sudo docker ps
+55a3efc6c2a5        apache2             "/usr/sbin/apache2..."   19 minutes ago      Up 16 minutes       0.0.0.0:80->80/tcp
+
+** sudo docker inspect 55a3efc6c2a5
+
+** sudo docker port 55a3efc6c2a5 80
+câu lệnh trên cho phép lấy port bining trên docker host bằng việc đưa vào port của container như option
+
+
+10, Binding a container to a specific IP address
+
+bạn có thể config IP và port xác định cho mỗi service xác định. Ta có thể hoàn thành điều này trong docker dùng 
+-p <ip>:<hostPort>:<containerPort> của 'docker run'
+
+$ sudo docker run -d -p 192.168.1.97:80:80 apache2
+
+truy cập http://192.168.1.97
+ra trang apache
+
+IP address phải là 1 valid IP trên docker host. 
+
+sudo docker ps
+
+ apache2             "/usr/sbin/apache2..."   2 minutes ago       Up 2 minutes        192.168.1.97:80->80/tcp
+
+
+
+11, Autogenerating the Docker host port
+
+Nhiều container spinning up cùng service.
+
+giả sử chúng ta lại chay:
+
+sudo docker run -d -p 80:80 apache2
+
+Docker sẽ báo lỗi vì 0.0.0.0 IP và 80 port đã được map bởi container trước đó.
+
+Chúng ta có thể skip lỗi này bằng việc thủ công xác định 1 docker host port khác
+
+-p 81:80 hoặc -p 8081:80
+
+Để ko thử công mà auto generate port trên docker host thì chúng ta phải cho control tới Docker. 
+
+có được bằng cách ko xác định host port chỉ dùng -p <containerPort> cho 'docker run'
+
+sudo docker ps
+
+apache2             "/usr/sbin/apache2..."   12 seconds ago      Up 10 seconds       0.0.0.0:32768->80/tcp
+
+sudo iptables -t nat -L -n
+
+DNAT       tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:32768 to:172.17.0.2:80
+
+32768 là cổng tự sinh trên docker host
+như vậy các request tới 0.0.0.0 cổng 32768 của docker host sẽ được forward tới 0.0.0.0 cổng 80 của container
+
+
+12, auto generate port và xác định IP của host
+Giả sử ta muốn cả tự động sinh port và cũng muốn giới hạn service tới 1 IP xác định của docker host. có thể dùng 
+-p <IP>::<containerPort> option 
+
+sudo docker run -d -p 192.168.1.97::80 apache2
+sudo docker ps
+
+ apache2             "/usr/sbin/apache2..."   20 seconds ago      Up 18 seconds       192.168.1.97:32768->80/tcp 
+
+
+13, Port binding using EXPOSE and -P option trong Dockerfile
+
+thêm EXPOSE 80 tới Dockerfile và rebuild image
+
+sudo docker build -t apache2 .
+
+sudo docker inspect apache2
+
+=>
+
+"ExposedPorts": {
+                "80/tcp": {}
+            },
+
+
+$ sudo docker inspect --format='{{.Config.ExposedPorts}}' apache2                  
+ =>  map[80/tcp:{}]
+
+
+13.1, Auto generate port binding cho docker host
+
+EXPOSE instruction ko thể tạo 1 port binding trên docker host. để làm điều này Docker engine cùng cấp -P option trong 'docker run'
+
+$ sudo docker run -d -P apache2
+
+Nó sẽ sinh ra port binding trên docker host cho tất cả ports được khai báo qua EXPOSE.
+
+sudo docker ps
+
+ apache2             "/usr/sbin/apache2..."   4 seconds ago       Up 2 seconds        0.0.0.0:32769->80/tcp
+
+sudo iptables -t nat -L -n
+DNAT       tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:32769 to:172.17.0.2:80
+
+
+
+
+
+
+

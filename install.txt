@@ -7,6 +7,8 @@ sudo apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys 58
 
 sudo apt-get update
 
+sudo apt-get install -y docker-engine
+
 docker --version
 Docker version 17.05.0-ce, build 89658be
 
@@ -61,3 +63,7 @@ nâng cao mô hình đóng gói, cho các mục đích làm nhẹ việc đóng 
   sudo service docker restart
 
   journalctl -u docker
+
+9, run ubuntu container, download image if it does not exit
+
+docker run -it ubuntu bash

@@ -68,9 +68,9 @@ Trong docker hostname của container chính là ID của nó
 
 - để access lại container dùng command:
 
-  sudo docker attach vigilant_ardinghelli
+  sudo docker attach vigilant_ardinghelli     (after that (enter))
 
-vigilant_ardinghelli: là tên container 
+vigilant_ardinghelli: là tên container (có thể thay bằng id của container)
 
 Tương tác với container dùng 1 số commands
 

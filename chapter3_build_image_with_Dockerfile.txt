@@ -1,0 +1,586 @@
+1, Trong mô hình client-server của docker, docker server (daemon) chịu trách nhiệm cho việc hoàn thành quá trình build
+và Docker command-line interface chịu trách nhiệm cho việc chuyển đổi Dockerfile tới daemon
+
+2, Dockerfile được tạo bởi 2 instruction như sau:
+
+FROM busybox:latest
+CMD echo Hello World!!
+
+FROM busy... : chọn base image 
+CMD echo ... : là cmd command , instruct container execute echo Hello world!!
+
+3, Tạo Docker image dùng Dockerfile bằng việc gọi 'docker build' với tham số là path của Dockerfile. ví dụ này
+sẽ gọi docker build từ thư mục chứa Dockerfile
+
+$ sudo docker build .
+
+output:
+
+Sending build context to Docker daemon  3.072kB
+Step 1/2 : FROM busybox:latest
+ ---> 6ad733544a63
+Step 2/2 : CMD echo Hello World!!
+ ---> Running in 3b606c6d384d
+ ---> 0b3d973b81cf
+Removing intermediate container 3b606c6d384d
+Successfully built 0b3d973b81cf
+
+image được tạo với id là: 0b3d973b81cf
+
+4, Dùng image mới được tạo để launch 1 container dùng docker run
+
+sudo docker run 0b3d973b81cf
+sudo docker images
+REPOSITORY                       TAG                 IMAGE ID            CREATED             SIZE
+<none>                           <none>              0b3d973b81cf        6 minutes ago       1.13MB
+
+Để thêm name và tag cho image:
+
+sudo docker tag 0b3d973b81cf busyboxplus
+
+hoặc thêm option -t khi tạo image từ Dockerfile
+
+sudo docker build -t busyboxplus .
+
+Mặc định thì tag là latest nhưng có thể xác định giá trị khác khi dùng với các câu lệnh trên như sau:
+
+<image name>:<tag name>
+
+Việc build images với image name là luôn cần thiết
+
+
+5, 
+
+By default, the docker build subcommand uses Dockerfile located at
+the build context. However, with the -f option, the docker build
+subcommand allows us to specify an alternate Dockerfile at a different
+path or name.
+
+6, Tổng quát về cú pháp của Dockerfile
+
+1 Dockerfile được tạo bởi instructions, comments, parser directives, and empty lines
+
+# Comment
+INSTRUCTION arguments
+
+FROM busybox:latest
+CMD echo Hello World!!
+
+instruction gồm 2 thành phần là tên instruction có thể viết thường hoặc viết hoa nhưng convention là viết hoa,
+các tham số của instruction 
+
+7, Comment line
+bắt đầu với #
+với các # đứng sau instruction được xem như tham số của instruction
+nếu trước # có dấu cách thì được xem như unknow instruction vào bị skip qua 
+
+docker cũng skip qua các empty lines
+
+8, The parser directives
+chỉ dẫn parser handle nội dung của dockerfile trong các directive. parser directive là optional và phải ở top của dockerfile
+hiện tại thì chỉ có escape là directive được supported
+
+chúng ta dùng escape character để escape các characters trong 1 line hoặc để mở rộng 1 line thành multiple lines.
+
+Docker xem xét '\' là escape character, có thể override nó trong windows dùng escape parser directive như sau:
+
+# escape=`
+
+=======================================================
+
+9, Dockerfile build instructions
+
+- FROM instruction
+
+FROM là một instruction quan trọng nhất và là instruction đầu tiên trong dockerfile.  Nó set base image cho build process
+các instruction sau đó sẽ dùng base image này và build on top của nó. Docker build system cho phép bạn dùng các image built
+bởi bất kỳ ai. Ta có thể mở rộng chúng bằng việc thêm nhiều tính năng . Mặc định thì docker build system sẽ tìm các
+images trong docker host, nếu ko tìm thấy nó sẽ pull các image từ docker hub registry. Docker build system sẽ trả về 
+error nếu nó ko tìm thấy image trong  cả docker host và docker hub registry
+
+Cú pháp:
+
+  FROM <image>[:<tag>|@<digest>]
+
+ví dụ:
+
+FROM centos
+FROM ubuntu:16.04
+FROM ubuntu@sha256:8e2324f2288c26e1393b63e680ee7844202391414dbd48497e9a4fd997cd3cbf
+
+docker cho phép dùng nhiều FROM instruction trong 1 Dockerfile trong trình tự để tạo nhiều images. Docker ko cung cấp
+bất kỳ cách nào để xác định nhiều image trong 1 FROM instruction
+
+
+- MAINTAINER instruction
+
+là một informational instruction của 1 Dockerfile. cho phép thêm các thông tin của author tới 1 image. Docker không có bất
+kỳ giới hạn nào cho vị trí đặt MAINTAINER instruction trong Dockerfile. Tuy nhiên nên đặt nó sau FROM instruction
+
+Cú pháp:
+
+  MAINTAINER <author's detail>
+
+<author's detail> có thể là bất kỳ text gì, tuy nhiên nên là image, authors's name và email address
+
+ví dụ:
+
+  MAINTAINER Dr. Peter <peterindia@gmail.com>
+
+
+
+- COPY instruction
+
+cho phép copy các files từ Docker host tới filesystem của new image. 
+
+cú pháp:
+
+  COPY <src> ... <dst>
+
+<src> là thư mục source, hoặc file trong build context hoặc thư mục mà 'docker build' command được gọi
+
+... chỉ dẫn rằng có nhiều source files
+
+<dst> là destination path của new image mà source file sẽ được copy đến. nếu có nhiều source files thì destination path
+phải là 1 folder và kết thúc bởi '/'
+
+Nên dùng absolute path cho destination path. nếu không COPY instruction sẽ giả sử rằng destination path sẽ bắt đầu từ root
+'/'. COPY instruction rất hữu ích cho việc tạo thư mục mới và cho overwriting filesystem của new image
+
+Ví dụ:
+
+  COPY html /var/www/html 
+
+  COPY httpd.conf magic /etc/httpd/conf/
+
+
+- ADD instruction
+
+ADD instruction tương tự như COPY instruction. Tuy nhiên, ADD có thêm tính năng bổ sung, như có thể handle TAR files
+và remote URLs. 
+
+   ADD <src> ... <dst>
+
+các tham số là giống với COPY 
+
+<src> có thể là 1 TAR file được lưu trong build context hoặc 1 remote url
+
+Ví dụ:
+
+giả sử có 1 tar file có cấu trúc sau:
+
+tar tf web-page-config.tar
+etc/httpd/conf/httpd.conf
+var/www/html/index.html
+var/www/html/aboutus.html
+var/www/html/images/welcome.gif
+var/www/html/images/banner.gif
+
+
+  ADD web-page-config.tar /
+
+sẽ copy tar file tới new image và extract tar file từ root directory (/) của new image 
+
+TAR option của ADD instruction có thể được dùng cho copy nhiều file tới target image
+
+
+
+-  ENV instruction
+
+set 1 environment variable trong new image. environment variable là 1 key-value pair, có thể được access bởi bất kỳ script
+hoặc application. Ứng dụng linux dùng các biến môi trường cho nhiều starting config
+
+cú pháp
+  
+  ENV <key> <value>
+
+ENV DEBUG_LVL 3
+ENV APACHE_LOG_DIR /var/log/apache
+
+
+
+-  ARG instruction
+
+cho phép định nghĩa các variables mà được passed trong suốt quá trình build của docker image. 'Docker build' command hỗ trợ
+--build-arg flag để pass value tới variables đã định nghĩa dùng ARG instruction. Nếu xác định 1 build argument mà ko được
+định nghĩa trong dockerfile, build sẽ fail 
+
+cú pháp:
+  
+  ARG <variable>[=<default value>]
+
+ví du:
+
+  ARG usr
+  ARG uid=1000
+
+
+  docker build --build-arg usr=app --build-arg uid=100
+
+
+
+- Environment variable
+
+Các environment variables đã khai báo dùng ENV hoặc ARG instruction có thể được dùng trong ADD, COPY, ENV, EXPOSE, LABEL,
+USER, WORKDIR, VOLUME, STOPSIGNAL, ONBUILD instructions
+
+ví dụ:
+
+ARG BUILD_VERSION
+LABEL com.example.app.build_version=${BUILD_VERSION}
+
+
+- USER instruction
+
+set startup user ID hoặc username cho new image . Mặc định, container sẽ launched với root với user ID. USER sẽ thay đổi
+user ID từ root
+
+cú pháp:
+
+  USER <UID>|<UName>
+
+UID là numerical user ID
+UName là 1 valid username
+
+
+-  WORKDIR instruction
+
+thay đổi current working directory từ '/' tới path được xác định trong instruction 
+
+khi đó các RUN, CMD, ENTRYPOINT sẽ cũng làm việc trên thư mục được set bởi WORKDIR instruction
+
+cú pháp:
+
+  WORKDIR <dirpath>
+
+dirpath có thể là absolute hoặc relative. Nếu là relative, nó sẽ relative với previous path set bởi WORKDIR instruction . Nếu directory đó ko được tìm thấy trong new image filesystem nó sẽ được tạo mới:
+
+ví dụ:
+
+  WORKDIR /var/log
+
+
+
+- VOLUME instruction
+
+tạo 1 folder mới trong image filesystem, nó có thể được dùng sau cho việc mounting volumns từ docker host hoặc các container khác
+
+VOLUME instruction có 2 loại cú pháp:
+
+  + first type là hoặc exec hoặc JSON array (tất cả giá trị phải trong ("))
+
+     VOLUME ["<mountpoint>"]
+
+  + second type là shell:
+
+     VOLUME <mountpoint>
+
+<mountpoint> là mount point phải được tạo trong new image
+
+
+
+-  EXPOSE instruction 
+
+mở 1 container network port cho việc giao tiếp giữa container và external world.
+
+cú pháp:
+
+   EXPOSE <port>[/<proto>] [<port>[/<proto>]...]
+
+<port> là network port mà phải được exposed tới outside world
+<proto> là 1 optinal field được cung cấp cho 1 transport protocol xác định, giống như TCP và UDP. Nếu ko có transport protocol được xác định , TCP được chọn
+
+EXPOSE cho phép xác định nhiều ports trong 1 single line
+
+ví dụ:
+
+  EXPOSE 7373/udp 8080
+
+exposing 7373 port như UDP port và 8080 cho TCP port
+
+
+- LABEL instruction
+
+  cho phép thêm key-value pairs như metadata tới docker images. Metadata có thể được leveraged xa để cung cấp meaningful Docker image management và orchestration
+
+cú pháp:
+
+  LABEL <key-1>=<val-1> <key-2>=<val-2> ... <key-n>=<val-n>
+
+1 Dockerfile có thể có nhiều LABEL instructions,, nhưng nhắc nhở rằng nên dùng 1 single LABEL instruction cho nhiều key-value pairs
+
+
+ví dụ:
+  
+  LABEL version="2.0" release-date="2016-08-05"
+
+Để tránh conflict khi naming. Nên dùng namespace . Có 1 community project được gọi là Label Schema mà cung cấp các shared 
+namespace:
+
+LABEL org.label-schema.schema-version="1.0" org.label-schema.version="2.0" org.label-schema.description="Learning Docker Example"
+
+
+
+-   RUN instruction
+
+có thể run bất kỳ command trong suốt quá trình build . Nên execute nhiều command dùng 1 RUN instruction để giảm số layer trong new image, vì docker tạo 1 layer cho lần 1 instruction được gọi trong Dockerfile
+
+RUN instruction có 2 loại cú pháp:
+
++  first là shell type:
+
+  RUN <command>
+
+<command> là shell command được executed trong quá trình build time, nó luôn dùng '/bin/sh -c'
+
++ second là: hoặc exec hoặc JSON array
+
+  RUN ["<exec>", "arg-1", ..., "<arg-n>"]
+
+<exec> đây là executable để run trong quá trình build time
+<arg-1>... là các variable numbers của các arguments cho executable 
+
+loại này không gọi với /bin/sh -c. 
+
+  ví dụ:
+
+  RUN ["bash", "-c", "rm", "-rf", "/tmp/abc"]
+
+  RUN echo "echo Welcome to Docker!" >> /root/.bashrc
+
+ví dụ trên sẽ thêm 1 greeting line tới .bashrc file của new image filesystem 
+
+*** Một ví dụ về Dockerfile build 1 Apache2 image
+
+###########################################
+# Dockerfile to build an Apache2 image
+###########################################
+# Base image is Ubuntu
+FROM ubuntu:14.04
+# Author: Dr. Peter
+MAINTAINER Dr. Peter <peterindia@gmail.com>
+# Install apache2 package
+RUN apt-get update && \
+  apt-get install -y apache2 && \
+  apt-get clean
+
+đồng bộ apt reposity source list, install apache2 package, clean các retrieved files
+
+
+- CMD instruction
+
+có thể chạy bất kỳ command (hoặc application) nó tương tự với RUN instruction. Sự khác nhau chính là thời gian thực thi.
+Command được cung cấp qua RUN được thực thi trong suốt build time, trái lại, CMD được thực thi khi container được launched
+từ new image. CMD instruction cung cấp 1 default execution cho container này. Tuy nhiên, nó có thể được overridden bởi
+'docker run' arguments. 
+
+CMD instruction có 3 loại syntax:
+
++ first type là shell type:
+  CMD <command>
+  <command> là shell command được thucwjthi trong suốt quá trình lauch của container. cú pháp này được dùng với '/bin/sh -c'
+
++ second type là exec hoặc JSON array:
+
+  CMD ["<exec>", "<arg-1>", ..., "<arg-n>"]
+
+<exec> là executable được chạy trong quá trình lauche container, <arg-1>... là các variables cho executable
+
+
++ third type: giống với loại trên tuy nhiên được dùng cho setting default params tới ENTRYPOINT instruction.
+
+  CMD ["arg-1",..., "arg-n"]
+
+  Có thể thêm nhiều CMD instructions trong Dockerfile. Tuy nhiên, chỉ có last CMD được accepted.
+
+  ví dụ 1 Dockerfile có dùng CMD
+
+
+########################################################
+# Dockerfile to demonstrate the behavior of CMD
+########################################################
+# Build from base image busybox:latest
+FROM busybox:latest
+# Author: Dr. Peter
+MAINTAINER Dr. Peter <peterindia@gmail.com>
+# Set command for CMD
+CMD ["echo", "Dockerfile CMD demo"]
+
+build 1 image naming là cmd-demo:
+
+sudo docker build -t cmd-demo .
+
+lauche container:
+
+sudo docker run cmd-demo
+
+*** chú ý: CMD có thể overridden bằng việc pass another command như 1 argument tới docker run:
+
+$ sudo docker run cmd-demo echo Override CMD demo
+
+
+
+-  ENTRYPOINT instruction
+
+Rất giống với CMD, nó chạy một application trong suốt quá trình complete life cycle của container. Khi entry point applictin
+bị terminated thì container cũng bị terminated. Bởi vậy, ENTRYPOINT instruction sẽ làm tính năng container giống
+như một executable . Sự khác của nó với CMD là nó không thể bị overridden bởi 'docker run'. Tuy nhiên docker run cũng có
+tham số bổ sung để overriden ENTRYPOINT (--entrypoint)
+
+Cú pháp của ENTRYPOINT tương tự với RUN và CMD. có 2 loại:
+
+  + first type là shell type:
+  ENTRYPOINT <command>
+  <command> là shell command, được executed trong quá trình lauche container. với cú pháp này command luôn được thự thi dùng
+  /bin/sh -c
+  
+  + sencond type: exec hoặc JSON array
+  
+  ENTRYPOINT ['<exec>', "<arg-1>", ..., "<arg-2>"]
+
+  *** có thể dùng nhiều ENTRYPOINT instruction trong Dockerfile tuy nhiên chỉ instruction cuối cùng mới available
+
+  ví dụ 1 dockerfile dùng ENTRYPOINT instruction
+
+########################################################
+# Dockerfile to demonstrate the behavior of ENTRYPOINT
+########################################################
+# Build from base image busybox:latest
+FROM busybox:latest
+# Author: Dr. Peter
+MAINTAINER Dr. Peter <peterindia@gmail.com>
+# Set entrypoint command
+ENTRYPOINT ["echo", "Dockerfile ENTRYPOINT demo"]
+
+$ sudo docker build -t entrypoint-demo .
+
+$ sudo docker run entrypoint-demo
+
+Ở đây container run giống như 1 executable khi echoing 'Dockerfile ENTRYPOINT demo' string và sau đó exit immediately
+
+$ sudo docker run entrypoint-demo with additional arguments
+Dockerfile ENTRYPOINT demo with additional arguments
+
+
+$ sudo docker run -it --entrypoint="/bin/sh" entrypoint-demo
+/ #
+
+
+-  The HEALTHCHECK instruction
+
+Trong life cycle  của 1 container nếu process trong container bị crashed hoặc die thì trạng thái của container sẽ bị stop
+HEALTHCHECK instruction dùng để theo dõi health của application trong container
+
+cú pháp:
+
+HEALTHCHECK [<options>] CMD <command>
+
+<command> là HEALTHCHECK command được thực thi trong 1 khoảng thời gian, nếu command exit status là 0 thì container được
+xem xét là healthy state. Nếu command exit status là 1 , container được xem xét là unhealty state
+
+<options>: mặc định thì HEALTHCHECK được gọi 30s một lần. timeout trong 30s, và command được gọi 3 lần trước khi container
+được xem xét là unhealthy. Chúng ta có thể thay đổi các giá trị đó với các options sau:
+
+--interval=<DURATION> [default: 30s]
+--timeout=<DURATION> [default: 30s]
+--retries=<N> [default: 3]
+
+ví dụ:
+
+  HEALTHCHECK --interval=5m --timeout=3s CMD curl -f http://localhost/ || exit 1
+
+
+
+- ONBUILD instruction
+
+
+là instruction đăng ký 1 build instruction tới 1 image và được triggered khi 1 image khác được built dùng image này như
+base image. Các build instruction được gọi ngay sau FROM instruction. Vì vậy ONBUILD instruction có thể được dùng để
+làm chậm sự thực thi của quá trình build instruction từ base image tới target image
+
+cú pháp:
+
+ONBUILD <INSTRUCTION>
+
+*** ONBUILD instruction không cho phép chain với ONBUILD khác, và cũng ko cho phép FROM và MAINTAINER instruction
+
+ví dụ:
+
+  ONBUILD ADD config /etc/appconfig
+
+
+
+-  STOPSIGNAL instruction
+
+cho phép cấu hình 1 exit signal cho container. 
+
+cú pháp:
+
+  STOPSIGNAL <signal>
+
+<signal> là hoặc valid signal name như SIGKILL hoặc valid unsigned signal number
+
+
+- SHELL instruction
+
+cho phép override default shell, sh trên linux và cmd trên windows
+
+cú pháp:
+
+SHELL ["<shell>", "<arg-1>", ..., "<arg-n>"]
+
+
+
+10, .dockerignore file
+
+'docker build' process sẽ gửi build context hoàn thiện tới daemon. Trong môi trường thực tế, docker build context sẽ
+chứa nhiều files và thư mực working khác, chúng sẽ không bao giờ được build vào trong image, nhưng docker build vẫn gửi chúng tới daemon. Để optimize build process bằng việc ko gửi các files đó tới daemon. Docker dùng .dockerignore file
+nội dung giống file .gitignore
+
+ví dụ: 
+
+.git
+*.tmp
+
+
+11, Bàn về việc quản lý Docker image
+
+Có thể download từ public repo dùng 'docker pull'
+Có thể dùng 'docker commit'
+hoặc dùng Dockerfile và 'docker build'
+
+Docker images chính là key trong việc distribute các applications, nó sẽ được deploy trên cloud server
+Docker images được build trong các layers, và có thể được build trên top của images khác. Original image được gọi là parent images và image được generated là child image. Base image là 1 bundle, comprise các dependencies commond của application
+Mỗi thay đổi trong base image được lưu trong 1 separate layer. Mỗi thời điểm, bạn commit tới docker image, sẽ tạo
+new layer trong docker image và các thay đổi được lưu trong new layer đó. Việc sử dụng lại các layers làm docker image
+trở lên simple và fast. Có thê tạo new docker images bằng việc thay đổi 1 single line trong Dockerfile mà ko cần rebuild
+toàn bộ stack
+
+Như vậy, docker image sẽ chứa nhiều layers. Để làm sao thấy được các layers trong docker image, hãy dùng 'docker history name_image'
+
+
+###########################################
+# Dockerfile to build an Apache2 image
+###########################################
+# Base image is Ubuntu
+FROM ubuntu:14.04
+# Author: Dr. Peter
+MAINTAINER Dr. Peter <peterindia@gmail.com>
+# Install apache2 package
+RUN apt-get update &&
+apt-get install -y apache2 &&
+apt-get clean
+
+$ sudo docker build -t apache2 .
+
+$ sudo docker history apache2
+
+
+
+https://docs.docker.com/articles/dockerfile_best-practices/
+
+  
+
+
+
+ 
