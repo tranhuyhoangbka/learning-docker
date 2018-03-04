@@ -1,0 +1,34 @@
+1, cÁC khía cạnh vitual machines đấu lại docker containers
+
+2, Non-root container
+bình thường thì các containers run với quyền root, để an toàn có thể thay đổi tới non-root dùng
+-u hoặc --user option tới 'docker run' hoặc USER instruction trong Dockerfile
+
+
+Example:
+
+tạo container với quyền root sau thấy thay đổi thành non-root
+
+sudo docker run --rm ubuntu:16.04 id
+
+=>
+uid=0(root) gid=0(root) groups=0(root)
+
+- Build docker image
+
+sudo docker build -t nonrootimage .
+
+- launch container
+
+uid=7373(peter) gid=7373(peter) groups=7373(peter)
+
+3, SELinux
+
+SELinux is not installed by default in Ubuntu 16.04
+
+$ sudo apt-get install selinux
+
+Then continue to enable the SELinux mode by running the following sed scripts:
+$ sudo sed -i 's/SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
+$ sudo sed -i 's/SELINUXTYPE=.*/SELINUXTYPE=default/' \
+/etc/selinux/config

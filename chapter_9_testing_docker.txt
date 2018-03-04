@@ -1,0 +1,249 @@
+1, Testing code bên trong Docker
+
+Example: 1 web app để track visit count của các users, dùng Python như run time environment và redis như database
+ví dụ này dùng Python 3 và ubuntu 16.04
+
+install python3
+
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt-get update
+sudo apt-get install python3.6
+
+hoặc
+
+sudo add-apt-repository ppa:jonathonf/python-3.6
+sudo apt-get update
+sudo apt-get install python3.6
+
+
+- test file:  test_hitcount.py
+
+#########################################
+#
+#########################################
+import unittest
+from unittest.mock import patch
+# Mock for redis
+import mockredis
+import hitcount
+
+class HitCountTest(unittest.TestCase):
+    @patch('hitcount.r',
+        mockredis.mock_strict_redis_client(host='0.0.0.0',
+        port=6379, db=0))
+    def testOneHit(self):
+        # increase the hit count for user1
+        hitcount.hit("user1")
+        # ensure that the hit count for user1 is just 1
+        self.assertEqual(b'1', hitcount.getHit("user1"))
+
+
+if __name__ == '__main__':
+    unittest.main()
+
+
+- run test file
+
+$ python3 -m unittest
+
+- hitcount.py file:
+
+import redis
+# connect to redis server
+r = redis.StrictRedis(host='0.0.0.0', port=6379, db=0)
+# increase the hit count for the usr
+def hit(usr):
+  r.incr(usr)
+
+# get the hit count for the usr
+def getHit(usr):
+  return (r.get(usr))
+
+- Cần cài pip3 
+
+wget -qO- https://bootstrap.pypa.io/get-pip.py | sudo python3 -
+
+- Cài redis driver cho python3
+
+$ sudo pip3 install redis
+
+- Cài đặt mockredispy để mocking redis server 
+
+sudo pip3 install mockredispy
+
+- Chạy lại test:
+
+python3 -m unittest
+
+tất cả sẽ passed
+
+
+=================================================================
+
+2, chạy test bên trong 1 container
+
+- Tạo Dockerfile sẽ build 1 image có base là python image, sau đó có các services như: redis driver, mockredispy 
+
+##################################################
+# Dockerfile to build the unittest container
+
+# Base image is python
+
+FROM python:latest
+
+# Author: hoang
+MAINTAINER hoang <hoangth92.nd@gmail.com>
+
+# install redis driver for python and redis mock
+
+RUN pip install redis && pip install mockredispy
+
+# Copy test an source to docker image
+
+ADD src/ /src/
+
+# change working directory to /src/
+
+WORKDIR /src/
+
+# Make unittest as default execution
+
+ENTRYPOINT python3 -m unittest
+
+
+*** ENTRYPOINT giống như RUN và CMD là thực hiện các command line nhưng ENTRYPOINT sẽ làm container giống như một execution app nghĩa là sau khi command được thực thi xong thì container cũng bị stop
+
+
+- build image
+
+sudo docker build -t hit_unittest .
+
+- launch container:
+
+$ sudo docker run --rm -it hit_unittest 
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+OK
+
+
+======================================================================
+
+3, Dùng docker container như 1 runtime environment
+
+Trong ví dụ trước mỗi khi code test unit thay đổi thì ta lại cần build lại image do đó sẽ mất time.
+Trong phần này sẽ thay đổi cách tiếp cận là: docker container được build như runtime environment, 
+development directory được mount như a volume, và test được performed bên trong container
+
+- lauch python runtime interactive container, dùng docker run
+
+$ sudo docker run -it -v /home/huyhoang/Documents/docker_demo/chapter_9_2/src:/src python:latest /bin/bash
+
+-v ở đây được dùng tương tự với 'VOLUME' trong Dockerfile, mount /home/huyhoang/Documents/docker_demo/chapter_9_2/src trong docker host tới /src trong container
+
+cd /src/
+python3 -m unittest
+fail do thiếu mockredis module
+
+- Install mockredispy vào trong container
+
+pip install mockredispy
+python3 -m unittest
+
+fail do thiếu redis driver
+
+- install redis driver cho container
+
+pip install redis
+
+python3 -m unittest
+passed
+
+- Bây giờ ta đã có container để chạy pass các test cases, chúng ta cần commit các thay đổi để tạo 1 image mới cho việc sử dụng lại:
+
+sudo docker commit -m "Create image for python environment" 2b967c4ca469 tranhuyhoang/python_rediswithmock
+
+sau đó push lên docker hub
+
+$ sudo docker push tranhuyhoang/python_rediswithmock
+
+====================================================
+
+4, Tích hợp docker testing vào trong jenkins
+
+- Chuẩn bị môi trường Jenkins
++ Thêm trusted PGP public key của jenkin:
+
+wget -q -O - https://jenkins-ci.org/debian/jenkins-ci.org.key | sudo apt-key add -
+
+sudo sh -c 'echo deb http://pkg.jenkins-ci.org/debian binary/ > /etc/apt/sources.list.d/jenkins.list'
+
+sudo apt-get update
+
+sudo apt-get install jenkins
+
+sudo service jenkins start
+
+access to browser:  192.168.100.58:8080  (192.168.100.58 là ip của mạng hiện tại)
+
+- Lấy password để đăng nhập vào jenkins
+
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+=> 80ebbc5df7584299901c17119352ecbd
+
+- Select Install suggested plugins
+
+- select Continue as admin
+- clicking on the Start using Jenkins button will take you to the Welcome to
+Jenkins! page
+
+- install Git
+
+$ sudo apt-get install git
+
+- khi cài đặt jenkins 1 user và group jenkins tự động được tạo. Trước đó, ta đã thực hiện các comamnd dockers với sudo, tuy nhiên ta ko thể gọi sudo trong jenkin. Bởi vậy ta cần thêm jenkins user tới Docker group để docker client làm việc mà ko cần sudo command
+
+$ sudo gpasswd -a jenkins docker
+
+$ sudo service jenkins restart 
+
+Như vậy chúng ta đã cài đặt thành công jenkin, và nó bây giờ có khả năng tự động pull code mới nhất từ git repo, gói nó như 1 Docker image và thực thi các test scenarios
+
+Ta cũng sẽ phải run jenkins như 1 docker container từ the official Jenkins
+Docker image at https://github.com/jenkinsci/docker . 
+
+
+5, Auto process docker testing
+Trong phần này  ta sẽ khám phá cách auto testing dùng Jenkins và docker .
+Fork code từ https://github.com/thedocker/testing
+
+các bước để có auto docker testing:
+Config Jenkins để trigger 1 build khi a fil đã thay đổi trên git repo.
+
+- connect Jenkins server
+- select create new jobs 
+- name project: Docker-Testing và select Freestyle project, click OK
+- click git radio button và input repo url: https://github.com/tranhuyhoangbka/testing
+- Select Poll SCM under Build Triggers to schedule GitHub polling for every
+15-minute interval. Type the following line of code H/15 * * * * in the
+Schedule textbox, as shown in the following screenshot. For testing purposes,
+you can reduce the polling interval
+
+- Scroll down the screen a little further and click on the Add build step button
+under Build. In the drop-down list, select Execute shell and type in the text, as
+shown in the following screenshot:
+
+docker build -t docker_testing_using_jenkins .
+docker run --rm docker_testing_using_jenkins
+- Click save button
+- Go back to the Jenkins dashboard, and you can find your test listed on the
+dashboard
+- You can either wait for the Jenkins schedule to kick-start the build or you can
+click on the clock icon on the right-hand side of the screen to kick-start the build
+immediately. As soon as the build is done, the dashboard is updated with the
+build status as a success or failure and the build number:
+
+
+
+

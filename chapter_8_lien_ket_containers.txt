@@ -1,0 +1,510 @@
+Trong chapter này, ta sẽ thảo luận các topics sau:
+- Linking các containers
+- phối hợp giữa các containers
+- Phối hợp giữa các containers dùng docker-compose tool
+
+=====================*****============================
+
+1, Docker build in service discovery
+
+Các container có thể discover các container khác dùng DNS
+
+Example:
+
+1.1, Tạo 1 user-defined bridge network, mybridge:
+
+$ sudo docker network create mybridge
+
+=> 7ee362d06571b72402d2ad19dfec9e109071c93f3ff086da7e88a139a226395d
+
+2.2, inspect new network để xem subnit range và gatewway IP
+
+[
+    {
+        "Name": "mybridge",
+        "Id": "7ee362d06571b72402d2ad19dfec9e109071c93f3ff086da7e88a139a226395d",
+        "Created": "2018-03-03T12:01:17.737303756+07:00",
+        "Scope": "local",
+        "Driver": "bridge",
+        "EnableIPv6": false,
+        "IPAM": {
+            "Driver": "default",
+            "Options": {},
+            "Config": [
+                {
+                    "Subnet": "172.18.0.0/16",
+                    "Gateway": "172.18.0.1"
+                }
+            ]
+        },
+        "Internal": false,
+        "Attachable": false,
+        "Ingress": false,
+        "Containers": {},
+        "Options": {},
+        "Labels": {}
+    }
+]
+
+
+1.3, tạo 1 container bằng việc attach nó tới mybridge network:
+
+$ sudo docker container run -itd --net mybridge --name testdns ubuntu:16.04
+
+1.4, để xem ip address được gán tới container:
+
+
+sudo docker container inspect --format '{{.NetworkSettings.Networks.mybridge.IPAddress}}' testdns
+=> 172.18.0.2
+
+1.5, hãy xem nội dung của /etc/resolv.conf của container
+
+sudo docker container exec testdns cat /etc/resolv.conf 
+
+=>
+nameserver 127.0.0.11
+options ndots:0
+
+127.0.0.11 là ip address của embedded DNS
+
+1.6, hãy ping testdns container dùng busybox image
+
+$ sudo docker run -itd --net mybridge --name testdns ubuntu:16.04
+
+=>
+98e13f005d0c15618e8efadaee2ba40db000ffc5fec7635f5aa74cc148938671
+➜  ~ sudo docker container run --rm --net mybridge busybox ping -c 2 testdns
+PING testdns (172.18.0.2): 56 data bytes
+64 bytes from 172.18.0.2: seq=0 ttl=64 time=0.083 ms
+64 bytes from 172.18.0.2: seq=1 ttl=64 time=0.092 ms
+
+--- testdns ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.083/0.087/0.092 ms
+
+=====================================================================
+
+2, Linking containers
+
+Docker cung cấp --link option cho 'docker run' subcommand để link source container tới a recipient container
+
+format như sau:
+
+'--link <container>:<alias>'
+
+<container> là tên của source container và <alias> là tên được seen bởi recipient container.
+
+Khi 2 container được linked với nhau, thì Docker sẽ auto tạo ra một số biến môi trường tới recipient container, các biến môi trường này có prefix là capitalized của alias name của source container.
+Docker export 3 lại biến môi trường là:
+
+- NAME: có dạng <ALIAS>_NAME, giá trị là cấu trúc cấp bậc tên của recipient container.
+
+Ví dụ: src là alias của source container và rec là name của recipient container, thì biến môi trường là:
+SRC_NAME=/rec/src
+
+
+- ENV: các biến môi trường đã cấu hình trong source container bởi -e option của 'docker run' hoặc
+ENV instruction của Dockerfile. Biến môi trường này có dạng '<ALIAS>_ENV_<VAR_NAME>'. Cho ví dụ, Nếu src là alias của source container và variable name là SAMPLE, thì biến môi trường sẽ là SRC_ENV_SAMPLE
+
+- PORT: loại biến này được dùng để export connectivity details của source container tới recipient. Docker tạo một bunch các biến cho mỗi port được exposed bởi source container thông qua -p option của docker run hoặc 
+EXPOSE instruction của Dockerfile. Các biến đó có dạng: <ALIAS>_PORT_<port>_<protocol>. Dạng này được dùng
+để share IP address, port, protocol như URL của source. Ví dụ, nếu alias của source là src, exposed port là 8080, protocol là tcp , ip address là: 172.17.0.2 thì biến môi truogwf và value của nó là:
+
+SRC_PORT_8080_TCP=tcp://172.17.0.2:8080 . URL này sau đó sẽ split thành 3 biến môi trường:
+
+  +  <ALIAS>_PORT_<port>_<protocol>_ADDR: chứa ip address (SRC_PORT_8080_TCP_ADDR=172.17.0.2)
+  +  <ALIAS>_PORT_<port>_<protocol>_PORT: (SRC_PORT_8080_TCP_PORT=8080)
+  +  <ALIAS>_PORT_<port>_<protocol>_PROTO: (SRC_PORT_8080_TCP_PROTO=tcp)
+
+- còn có 1 biến nữa là: <ALIAS>_PORT sẽ chứa last port được định nghĩa trong Docker file qua expose:
+ví dụ SRC_PORT=tcp://172.17.0.2:80
+
+Docker auto tạo các biến môi trường trong một dạng cấu trúc rất ok để recipient container dễ dàng discover thông tin của source container. Docker cũng auto update source ip address và alias của nó trong /etc/hosts file của recipient
+
+=========================================================================
+
+3, Tạo 1 container linking đơn giản
+Ta sẽ thiết lập kết nối giữa 2 container, và trao đổi 1 số thông tin cở bản từ source container tới recipient container:
+
+- lauch 1 interactive container mà có thể được dùng như 1 source container:
+
+$ sudo docker run --rm --name example -it busybox:latest
+
+- Xem nội dung file /etc/hosts trong source container:
+
+# cat /etc/hosts
+127.0.0.1	localhost
+::1	localhost ip6-localhost ip6-loopback
+fe00::0	ip6-localnet
+ff00::0	ip6-mcastprefix
+ff02::1	ip6-allnodes
+ff02::2	ip6-allrouters
+172.17.0.2	7587ae8aac49
+
+Như vậy 172.17.0.2 là ip address của source container và 7587ae8aac49 host name
+
+- Xem các biên môi trường của source container
+
+# env
+HOSTNAME=7587ae8aac49
+SHLVL=1
+HOME=/root
+TERM=xterm
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+PWD=/
+
+
+- Lauch interactive recipient container và link nó tới source container dùng --link option của 'docker run'
+
+
+$ sudo docker run --rm --link example:ex -it busybox:latest
+
+- Hiển thị nội dung của /etc/hosts file của recipient container dùng cat command
+
+/ # cat /etc/hosts
+127.0.0.1	localhost
+::1	localhost ip6-localhost ip6-loopback
+fe00::0	ip6-localnet
+ff00::0	ip6-mcastprefix
+ff02::1	ip6-allnodes
+ff02::2	ip6-allrouters
+172.17.0.2	ex 7587ae8aac49 example
+172.17.0.3	58aee826aa7d
+
+có thêm entry về ip address và host name của source container:
+
+- Hiển thị các biến môi trường của recipient container:
+
+# env
+
+
+EX_NAME=/modest_einstein/ex
+
+biến EX_NAME được tự động thêm, EX là viết hoa của alias name của source container
+modest_einstein là name của recipient container
+
+- Ping source container từ recipient container 
+
+# ping -c 2 ex
+
+PING ex (172.17.0.2): 56 data bytes
+64 bytes from 172.17.0.2: seq=0 ttl=64 time=0.288 ms
+64 bytes from 172.17.0.2: seq=1 ttl=64 time=0.108 ms
+
+--- ex ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.108/0.198/0.288 ms
+
+ping với 2 count (gửi đi và nhận 2 packages) và ex như ping address
+
+ex được resovle tới ip address của source container. Trong trường hợp secured container communication việc
+ping giữa các containers là ko được phép.
+
+===============================================
+
+4, ví dụ container linking exports các biến môi trường của source container, được config qua -e option của 'docker run' hoặc ENV instruction của Dockerfile
+
+- Tạo Dockerfile
+
+FROM busybox:latest
+ENV BOOK="Learning Docker" CHAPTER="Orchestrating Containers"
+
+- Build 1 image
+
+$ sudo docker build -t envex .
+
+- Launch 1 interactive source container với example name dùng envex image
+
+$ sudo docker run -it --rm --name example envex
+
+- Liệt kê danh sách biến môi trường trong source container
+
+# env
+
+BOOK=Learning Docker
+CHAPTER=Orchestrating Containers
+
+- show ENV category của các biên môi trường trong recipient container:
+
+$ sudo docker run --rm --link example:ex busybox:latest env
+
+EX_NAME=/tender_borg/ex
+EX_ENV_BOOK=Learning Docker
+EX_ENV_CHAPTER=Orchestrating Containers
+
+*** Chú ý các biến môi trường giữa source và recipient là hoàn toàn độc lập không liên quan tới nhau.
+
+5, linking 2 container và share connectivity details giữ chúng
+
+- tạo docker file để expost port 80 và 8080 dùng EXPOSE instruction
+
+FROM busybox:latest
+EXPOSE 8080 80
+
+- build docker image có name là portex
+
+sudo docker build -t portex .
+
+- launch 1 interactive source container name là example
+
+sudo docker run -it --rm --name example portex
+
+- Tạo recipient container và gọi env command
+
+$ sudo docker run --rm --link example:ex busybox:latest env
+
+EX_PORT=tcp://172.17.0.2:80
+EX_PORT_80_TCP=tcp://172.17.0.2:80
+EX_PORT_80_TCP_ADDR=172.17.0.2
+EX_PORT_80_TCP_PORT=80
+EX_PORT_80_TCP_PROTO=tcp
+EX_PORT_8080_TCP=tcp://172.17.0.2:8080
+EX_PORT_8080_TCP_ADDR=172.17.0.2
+EX_PORT_8080_TCP_PORT=8080
+EX_PORT_8080_TCP_PROTO=tcp
+EX_NAME=/heuristic_bell/ex
+
+==================================================================
+
+6, Phối hợp giữa các containers dùng docker-compose
+
+docker-compose cho phép pull, build các image, start containers đúng trình tự, tạo linking giữa các containers
+dự trên docker-compose.yml file
+
+6.1, Install docker-compose
+
+https://github.com/docker/compose/releases/latest
+
+- Script để install docker-compose mới nhất tự động và làm nó public tại:  http://sjeeva.github.io/getcompose
+- Khi chạy script này docker-compose sẽ được cài trong /usr/local/bin/docker-compose
+
+wget -qO- http://sjeeva.github.io/getcompose | sudo sh
+
+Hoặc
+
+curl -sSL http://sjeeva.github.io/getcompose | sudo sh
+ 
+Hoặc cài đặt 1 version xác định nào đó
+
+sudo sh -c 'wget -qO- \
+https://github.com/docker/compose/releases/tag/1.11.2/ \
+docker-compose-`uname -s`-`uname -m` > \
+/usr/local/bin/docker-compose; \
+chmod +x /usr/local/bin/docker-compose'
+
+hoặc 
+
+curl -L
+https://github.com/docker/compose/releases/download/1.11.2/docker-compose-`
+uname -s`-`uname -m` > /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+
+*** Khi docker-compose được cài đặt thành công check command
+
+docker-compose --version
+
+=> docker-compose version 1.19.0, build 9e633ef
+
+Dùng docker-compose file 3.6 cho 1.19.0 docker-compose  
+
+=================================================================================
+
+6.2, docker-compose file
+
+docker-compose file là 1 YAML file. 
+
+docker-compose tool dùng file docker-compose.yml hoặc docker-compose.yaml để phối hợp các containers
+
+- format của docker-compose file:
+
+version: "<version>"
+services:
+  <service>:
+    <key>: <value>
+    <key>:
+     - <value>
+     - <value>
+networks:
+  <network>:
+    <key>: <value>
+volumes:
+  <volume>:
+    <key>: <value>
+
+- <version> là version của docker-compose file. 
+- <service> là tên của service. có thể có nhiều services được định nghĩa trong docker-compose file. service 
+name nên được followed bởi 1 hoặc nhiều keys. Tất cả services phải hoặc có 1 image hoặc 1 build key, được followed bởi bất kỳ key nào đó. Nếu ko có image hoặc build keys, các key còn lại có thể được map tới 
+các options trong 'docker run' command. giá trị có thể là single value hoặc multiple values.
+
+Tất cả <service> definitions phải được nhóm bên dưới services key.
+
+- <network>: Là tên của networks mà được dùng cho các services. Tất cả <network> definition phải được nhóm dưới 'networks' key
+
+- <volume>: Là tên của volume mà được dùng bởi các services. Tất cả <volume> definition phải được group
+dưới 'volume' key
+
+6.3, các keys trong docker-compose file:
+
+https://docs.docker.com/compose/compose-file
+
+- image: tag hoặc image ID
+- build: path tới thư mục chứa Dockerfile
+- command: overrides default command
+- deploy: key này có nhiều subkeys và được dùng để xác định cấu hình deployment. Được dùng chỉ trong docker swarm mode
+
+- depends_on: được dùng để xác định các dependencies giữa các services, nó có thể được mở rộng xa hơn để 
+chain các services dựa trên conditions của chúng 
+- cap_add: để thêm 1 capability tới container
+- cap_drop: nó drops 1 capability của container
+- dns: sét custoom DNS servers
+- dns-search: set custom dns search servers
+- entrypoint: để overrides default entrypoint
+- env_file: cho phép thêm các biến môi trường thông qua các files
+- environment: thêm các biến môi trường dùng 1 array hoặc dictionary
+- expose: exposes các ports ko publishing chúng tới host machine
+- extends: mở rộng service khác đã defined trong cùng hoặc khác config file
+- extra_hosts: cho phép bổ sung hosts tới /etc/hosts trong container
+- healthcheck: cho phép config service health check
+- labels: cho phép thêm metadata tới container
+- links: links các containers vào trong service khác. 
+- logging: config logging cho service
+- network: được dùng để join service tới network đã định nghĩa trong networks key
+- pid: enable PID space sharing giữa host và các containers
+- ports: exposes ports và xác định cả các HOST_port:CONTAINER_port ports
+- volumes: mounts path hoặc volumes. named volumes cần được định nghĩa trong volumes key
+
+
+6.4, docker-compose command
+
+   docker-compose [<options>] <command> [<args>...]
+
+docker-compose tool hỗ trợ các options
+- f, --file <file>: xác địn docker-compose file (mặc định là docker-compose.yml)
+- p, --project-name <name>: xác định 1 project name (mặc định là tên thư mục)
+--verbose: show more input
+-v, --version: in ra versions và exit
+-H, --host <host>: xác định daemon socket để connect tới
+-tls, --tlscacert, --tlskey, --skip-hostname-check
+
+*** docker-compose tool hỗ trợ các commands sau:
+
+- build: build hoặc rebuilds các services
+- bundle: để tạo 1 docker bundle từ compose file 
+- config: để validate và display compose file.
+- create: tạo các services đã defined trong compose file
+- down: được dùng để stop và remove các containers và networks
+- events: được dùng để view real-time container life cycle events
+- exec: cho phép để chạy 1 command trong 1 container đang running. nó được dùng chủ yếu cho debugging 
+- kill: kill các containers đang running
+- logs: hiển thị output từ containers
+- pause: được dùng để pause các services
+- port: in ra public port cho 1 port binding
+- ps: liệt kê các containers
+- pull: pulls các images từ repo
+- push: push các image tới repo
+- restart: restart các services đã defined trong compose file
+- rm: remove các containers đã stoped
+- run: run 1 command
+- scale: sets số lượng containers cho 1 service
+- start: start các services đã defined trong compose file
+- stop: stops các services
+- unpause: unpause các services
+- up: tạo và start các containers
+- version: in ra version của docker-compose
+
+
+===============================================================================
+
+
+6.5, Cách dùng
+
+1 ví dụ cho cách dùng docker-compose. 
+
+Sẽ build 1 two-tiered web application mà sẽ nhận các inputs thông qua 1 url và response với response text.
+application này được build dùng 2 services sau: 
+
+- Redis: key-value database được dùng để lưu key và value của nó
+- Node.js: là 1 javascript runtime environment được dùng để implement server function cũng như logic của app
+
+Mỗi service đó được gói lại dùng 2 containers khác nhau và được khâu lại dùng docker-compose. 
+
+Thực hiện:
+
+implement example.js, file này định nghĩa web server cho Node.js, cũng tạo Dockerfile cùng thư mục với
+example.js để gói Node.js runtime evironment, và sau đó định nghia file docker-compose file cùng thư mục với
+example.js
+
+*** Dockerfile
+FROM node:latest
+MAINTAINER hoang <hoangth92.nd@gmail.com>
+RUN npm install redis
+ADD example.js /myapp/example.js
+
+*** docker-compose.yml
+
+version: "3.6"
+services:
+  web:
+    build: .
+    command: node /myapp/example.js
+    depends_on:
+    - redis
+    ports:
+    - 8080:80
+  redis:
+    image: redis:latest
+
+
+*** Ta đã định nghĩa 2 services trong docker-compose.yml file, các services với mục đích sau:
+
+- web service được build dùng Dockerfile trong current folder, launch container và running 'node /myapp/example.js' . Node.js app dùng redis db, web service bị forced để start sau redis service dùng 'depends_on' instruction. Bên cạnh đó, port 80 của container được map tới 8080 của docker host
+
+- service redis được chỉ thị để launch 1 container với redis:latest image. Nếu image chưa có trong docker host, docker sẽ pull nó từ docker hub registry hoặc private repo
+
+- Tiếp theo build các docker images dùng 'docker-compose build' command, launch các containers dùng
+'docker-compose up' command , connect tới brower để xem xét request/response function
+
+  +  Chạy các commands phải chạy trong folder chứa docker-compose.yml, mặc định thì docker-compose xem xét docker-compose.yml file như 1 project và folder name chứa docker-compose.yml như tên của project, tuy nhiên 
+có thể override dùng -p option 
+
+   + build các images dùng 'docker-compose build' được instruct trong file Dockerfile
+   
+   $ sudo docker-compose build
+
+   + pull các images từ repo dùng docker-compose pull, ở đây sẽ pull redis image
+   
+   $ sudo docker-compose pull
+
+   + Run các services được chỉ thị trong docker-compose.yml file dùng 'docker-compose up'
+   
+   $ sudo docker-compose up
+
+
+Như vậy, ta đã kết hợp các services dùng docker-compose tool
+
+- Sang một terminal khác để check:
+
+cd chapter_8_3
+
+sudo docker-compose ps
+         
+      Name                    Command             State          Ports        
+------------------------------------------------------------------------------
+chapter83_redis_1   docker-entrypoint.sh redis    Up      6379/tcp            
+                    ...                                                       
+chapter83_web_1     node /myapp/example.js        Up      0.0.0.0:8080->80/tcp
+
+- Kiểm tra xem web server đã hoạt động:
+
+curl http://localhost:8080 trên terminal khác của docker host
+
+hoặc trên trình duyệt
+
+=>
+output:
+
+Welcome to Docker-Compose helper
+Enter the docker-compose command in the URL for help
+
+
+Ở đây web service được bound tới docker host dùng port 8080 

@@ -1,0 +1,126 @@
+- có thể start dockẻ với -D debug option:
+
+$ docker -D login
+
+hoặc sửa docker config file: (/etc/default/docker)
+
+DOCKER_OPTS="-D"
+
+1, Phân tách process_leval cho các docker containers
+
+- Linux cung cấp 5 namespace leveal cho việc isolate global system resources
+
+network: This namespace is used to isolate networking resources such as the
+network devices, network stack, and port number
+mount: This namespace isolates the filesystem mount points
+PID: This namespace isolates the process identification number
+user: This namespace is used to isolate the user ID and group ID
+UTS: This namespace is used to isolate the hostname and the NIS   domain name
+
+2, trong phần này ta sẽ isolation process-level docker bằng việc dùng linux namespace :
+- start ubuntu container 
+
+sudo docker run -it --rm ubuntu /bin/bash
+#
+
+- Tìm process ID của container:
+
+sudo docker inspect --format "{{ .State.Pid}}" 3111747e5ce4
+
+=> 17251
+
+ps -fp 17251
+
+- sudo cat -v /proc/17251/environ 
+
+=>
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin^@HOSTNAME=3111747e5ce4^@TERM=xterm^@HOME=/root^@%
+
+Ta thấy host name là id của container
+
+sudo docker run --name trainingapp training/webapp:latest
+sudo docker exec -it 0514c60bb89a bash
+
+sudo docker stats a245253db38b
+
+sudo docker stats a245253db38b f71b26cee2f1 (nhiều containers)
+=> view memory, cpu, network 
+
+sudo docker pause 0514c60bb89a
+=>
+0514c60bb89a
+
+sudo docker ps -a
+=>
+0514c60bb89a        training/webapp:latest                "python app.py"          18 minutes ago      Up 18 minutes (Paused)      5000/tcp
+
+ sudo docker unpause 0514c60bb89a
+=>
+0514c60bb89a
+
+sudo docker ps 
+=>
+
+0514c60bb89a        training/webapp:latest   "python app.py"     20 minutes ago      Up 20 minutes       5000/tcp            trainingap
+
+- Xem log của container
+
+sudo docker logs 0514c60bb89a
+
+sudo docker logs -t 0514c60bb89a (thêm timestamp)
+2018-03-04T08:37:02.376415228Z  * Running on http://0.0.0.0:5000/ (Press CTRL+C to quit)
+
+The -follow option will continue to provide the output till the end, -t will provide the
+timestamp, and --tail= <number of lines> will show the number of lines of the log
+messages of your container
+
+- The docker attach command
+
+attach running container , hữu dụng khi muốn thấy những gì được written trong stdout in real time
+
+sudo docker run -d --name=newtest alpine /bin/sh -c "while true; do sleep 2; df -h; done"
+
+run container như daemon và thực hiện việc loop chứ 2s lại show df -h 1 lần
+
+sudo docker attach newtest
+
+
+3, Debugging a Dockerfile
+build các image thường ko có vấn đề cho đến khi starting container thì bị crash
+
+Mọi instructions trong Dockerfile sẽ được build riêng rẽ, image trung gian cho instruction khác để build trên top của previous instruction. 
+
+Dockerfilie
+
+FROM busybox
+RUN ls -lh
+CMD echo Hello world
+
+
+sudo docker build .
+Sending build context to Docker daemon  3.072kB
+Step 1/3 : FROM busybox
+ ---> 6ad733544a63
+Step 2/3 : RUN ls -lh
+ ---> Running in 0e8fccb7f49b
+total 36
+drwxr-xr-x    2 root     root       12.0K Nov  1 22:58 bin
+drwxr-xr-x    5 root     root         340 Mar  4 09:11 dev
+drwxr-xr-x    2 root     root        4.0K Mar  4 09:10 etc
+drwxr-xr-x    2 nobody   nogroup     4.0K Nov  1 22:58 home
+dr-xr-xr-x  267 root     root           0 Mar  4 09:11 proc
+drwxr-xr-x    2 root     root        4.0K Nov  1 22:58 root
+dr-xr-xr-x   13 root     root           0 Mar  4 09:11 sys
+drwxrwxrwt    2 root     root        4.0K Nov  1 22:58 tmp
+drwxr-xr-x    3 root     root        4.0K Nov  1 22:58 usr
+drwxr-xr-x    4 root     root        4.0K Nov  1 22:58 var
+ ---> 99bba3af08be
+Removing intermediate container 0e8fccb7f49b
+Step 3/3 : CMD echo Hello world
+ ---> Running in 1b77f4874a2d
+ ---> 0954ca685f40
+Removing intermediate container 1b77f4874a2d
+Successfully built 0954ca685f40
+
+
+
